@@ -4,31 +4,23 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.preprocessing import LabelEncoder
 
 # ----------------------------------
 # Page config
 # ----------------------------------
-st.set_page_config(page_title="Customer Segmentation", layout="wide")
+st.set_page_config(page_title="Linear Regression App", layout="wide")
 
-st.title("🧠 Customer Segmentation using K-Means")
-st.write("Upload a customer dataset and perform K-Means clustering.")
-
-# ----------------------------------
-# File upload
-# ----------------------------------
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
-
-if uploaded_file is None:
-    st.info("👆 Please upload a CSV file to continue")
-    st.stop()
+st.title("📈 Linear Regression using Shopping Data")
+st.write("Predict Spending Score using Linear Regression")
 
 # ----------------------------------
-# Load data
+# Load dataset
 # ----------------------------------
-df = pd.read_csv(uploaded_file)
+df = pd.read_csv("Shopping_data.csv")
 
 st.subheader("📄 Dataset Preview")
 st.dataframe(df.head())
@@ -36,95 +28,76 @@ st.dataframe(df.head())
 st.write("Columns:", df.columns.tolist())
 
 # ----------------------------------
-# Data Cleaning
+# Drop ID column if exists
 # ----------------------------------
-st.subheader("🧹 Data Cleaning")
-
-# Drop ID if present
-if "ID" in df.columns:
-    df.drop("ID", axis=1, inplace=True)
-
-# Separate numeric & categorical columns
-num_cols = df.select_dtypes(include=np.number).columns.tolist()
-cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
-
-# Fill missing values
-for col in num_cols:
-    df[col].fillna(df[col].median(), inplace=True)
-
-for col in cat_cols:
-    df[col].fillna(df[col].mode()[0], inplace=True)
-
-st.success("Missing values handled successfully")
+for col in ["CustomerID", "ID"]:
+    if col in df.columns:
+        df.drop(col, axis=1, inplace=True)
 
 # ----------------------------------
-# Encoding (for K-Means only)
+# Encode categorical columns
 # ----------------------------------
-df_encoded = pd.get_dummies(df, drop_first=True)
+for col in df.select_dtypes(include="object").columns:
+    le = LabelEncoder()
+    df[col] = le.fit_transform(df[col])
 
 # ----------------------------------
-# Scaling
+# Select target variable
 # ----------------------------------
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(df_encoded)
+st.subheader("🎯 Target Selection")
+target = st.selectbox("Select Target Column", df.columns)
+
+X = df.drop(target, axis=1)
+y = df[target]
 
 # ----------------------------------
-# Choose K
+# Train-test split
 # ----------------------------------
-st.subheader("🔢 Select Number of Clusters")
-k = st.slider("Number of clusters (K)", min_value=2, max_value=10, value=5)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.25, random_state=42
+)
 
 # ----------------------------------
-# Train K-Means
+# Train Linear Regression
 # ----------------------------------
-kmeans = KMeans(n_clusters=k, random_state=42)
-clusters = kmeans.fit_predict(X_scaled)
+model = LinearRegression()
+model.fit(X_train, y_train)
 
-df["Cluster"] = clusters
+# ----------------------------------
+# Prediction
+# ----------------------------------
+y_pred = model.predict(X_test)
 
 # ----------------------------------
 # Evaluation
 # ----------------------------------
-sil_score = silhouette_score(X_scaled, clusters)
-st.metric("Silhouette Score", round(sil_score, 3))
+r2 = r2_score(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+
+st.subheader("📊 Model Performance")
+st.metric("R² Score", round(r2, 3))
+st.metric("Mean Squared Error", round(mse, 3))
 
 # ----------------------------------
-# Visualization (SAFE)
+# Visualization
 # ----------------------------------
-st.subheader("📊 Cluster Visualization")
-
-# Choose columns for plotting
-x_col = st.selectbox("X-axis", num_cols)
-y_col = st.selectbox("Y-axis", num_cols, index=1 if len(num_cols) > 1 else 0)
+st.subheader("📉 Actual vs Predicted")
 
 fig, ax = plt.subplots()
-sns.scatterplot(
-    x=x_col,
-    y=y_col,
-    hue="Cluster",
-    data=df,
-    palette="Set2",
-    ax=ax
-)
-ax.set_title("Customer Segmentation using K-Means")
+ax.scatter(y_test, y_pred)
+ax.set_xlabel("Actual Values")
+ax.set_ylabel("Predicted Values")
+ax.set_title("Actual vs Predicted Values")
 st.pyplot(fig)
 
 # ----------------------------------
-# Cluster Summary
+# Coefficients
 # ----------------------------------
-st.subheader("📌 Cluster Summary (Mean Values)")
-summary = df.groupby("Cluster")[num_cols].mean()
-st.dataframe(summary)
+st.subheader("📌 Feature Coefficients")
 
-# ----------------------------------
-# Download Result
-# ----------------------------------
-st.subheader("⬇️ Download Clustered Data")
-csv = df.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label="Download CSV",
-    data=csv,
-    file_name="clustered_customers.csv",
-    mime="text/csv"
-)
+coef_df = pd.DataFrame({
+    "Feature": X.columns,
+    "Coefficient": model.coef_
+}).sort_values(by="Coefficient", ascending=False)
 
+st.dataframe(coef_df)
